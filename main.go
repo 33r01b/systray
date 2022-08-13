@@ -1,14 +1,12 @@
 package main
 
 import (
-	"bufio"
-	"errors"
 	"fmt"
 	"log"
-	"os"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/33r01b/systray/modules"
 )
 
 var (
@@ -17,111 +15,154 @@ var (
 	mem       string
 	diskspace string
 	network   string
-	wifi      string
 	bat       string
 	date      string
-	bluetooth string
 )
 
 func init() {
+	cpu = "cpu"
 	temp = "temp"
 	mem = "mem"
 	diskspace = "diskspace"
 	network = "network"
-	wifi = "wifi"
 	bat = "bat"
 	date = "date"
-	bluetooth = "bluetooth"
 }
 
 func main() {
-
-	cpuUpdate()
+	go cpuUpdate()
+	go tempUpdate()
+	go memUpdate()
+	go diskUpdate()
+	go networkUpdate()
+	go batUpdate()
+	go dateUpdate()
+	// TODO bluetooth
 
 	var stateBuilder strings.Builder
-	stateBuilder.WriteString(cpu)
-	stateBuilder.WriteString("  ")
-	stateBuilder.WriteString(temp)
-	stateBuilder.WriteString("  ")
-	stateBuilder.WriteString(mem)
-	stateBuilder.WriteString("  ")
-	stateBuilder.WriteString(diskspace)
-	stateBuilder.WriteString("  ")
-	stateBuilder.WriteString(network)
-	stateBuilder.WriteString("  ")
-	stateBuilder.WriteString(wifi)
-	stateBuilder.WriteString("  ")
-	stateBuilder.WriteString(bat)
-	stateBuilder.WriteString("  ")
-	stateBuilder.WriteString(date)
-	stateBuilder.WriteString("  ")
-	stateBuilder.WriteString(bluetooth)
 
-	fmt.Println(stateBuilder.String())
+	for {
+		stateBuilder.Reset()
+
+		stateBuilder.WriteString(cpu)
+		stateBuilder.WriteString("  ")
+		stateBuilder.WriteString(temp)
+		stateBuilder.WriteString("  ")
+		stateBuilder.WriteString(mem)
+		stateBuilder.WriteString("  ")
+		stateBuilder.WriteString(diskspace)
+		stateBuilder.WriteString("  ")
+		stateBuilder.WriteString(network)
+		stateBuilder.WriteString("  ")
+		stateBuilder.WriteString(bat)
+		stateBuilder.WriteString("  ")
+		stateBuilder.WriteString(date)
+
+		fmt.Println(stateBuilder.String())
+
+		time.Sleep(1 * time.Second)
+	}
 }
 
 func cpuUpdate() {
-	prevTotal, prevIdle, err := getCpuStat()
-	if err != nil {
-		log.Println(err)
-		return
+	for {
+		value, err := modules.Cpu()
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		cpu = fmt.Sprintf("cpu %d%%", value)
+
+		time.Sleep(5 * time.Second)
 	}
-
-	time.Sleep(500 * time.Millisecond)
-
-	total, idle, err := getCpuStat()
-	if err != nil {
-		log.Println(err)
-		return
-	}
-
-	var cpuUsage int
-	if (total - prevTotal) > 0 {
-		cpuUsage = 100 * ((total - prevTotal) - (idle - prevIdle)) / (total - prevTotal)
-	}
-
-	cpu = fmt.Sprintf("cpu %d%%", cpuUsage)
 }
 
-func getCpuStat() (total, idle int, err error) {
-	stat, err := os.Open("/proc/stat")
-	if err != nil {
-		return 0, 0, fmt.Errorf("cannot open /proc/stat: %w", err)
+func tempUpdate() {
+	for {
+		value, err := modules.Temp()
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		temp = fmt.Sprintf("%sC", string(value))
+
+		time.Sleep(3 * time.Second)
 	}
-	defer stat.Close()
+}
 
-	reader := bufio.NewReader(stat)
-	ln, _, err := reader.ReadLine()
-	if err != nil {
-		return 0, 0, fmt.Errorf("cannot read /proc/stat: %w", err)
+func memUpdate() {
+	for {
+		value, err := modules.Mem()
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		mem = fmt.Sprintf("%d MiB", value)
+
+		time.Sleep(5 * time.Second)
 	}
+}
 
-	cols := strings.Fields(string(ln))
-	if len(cols) < 5 {
-		return 0, 0, errors.New("stat fields length mismatch")
+func diskUpdate() {
+	for {
+		available, err := modules.DiskAvailable()
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		diskspace = fmt.Sprintf("%dG", available)
+
+		time.Sleep(5 * time.Minute)
 	}
+}
 
-	user, err := strconv.Atoi(cols[1])
-	if err != nil {
-		return 0, 0, fmt.Errorf("cannot parse cpu 'user' column: %w", err)
+func networkUpdate() {
+	for {
+		down, up, err := modules.Network()
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		network = fmt.Sprintf("down %d kB/s up %d kB/s", down, up)
+
+		time.Sleep(1 * time.Second)
 	}
+}
 
-	nice, err := strconv.Atoi(cols[2])
-	if err != nil {
-		return 0, 0, fmt.Errorf("cannot parse cpu 'nice' column: %w", err)
+func batUpdate() {
+	for {
+		capacity, err := modules.BatCapacity()
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		isCharging, err := modules.BatCharging()
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		charge := ""
+		if isCharging {
+			charge = "+"
+		}
+
+		bat = fmt.Sprintf("bat%s %s", charge, capacity)
+
+		time.Sleep(10 * time.Second)
 	}
+}
 
-	system, err := strconv.Atoi(cols[3])
-	if err != nil {
-		return 0, 0, fmt.Errorf("cannot parse cpu 'system' column: %w", err)
+func dateUpdate() {
+	for {
+		date = time.Now().Format("Mon 01-02 15:04")
+
+		time.Sleep(10 * time.Second)
 	}
-
-	idle, err = strconv.Atoi(cols[4])
-	if err != nil {
-		return 0, 0, fmt.Errorf("cannot parse cpu 'idle' column: %w", err)
-	}
-
-	total = user + nice + system + idle
-
-	return total, idle, err
 }
